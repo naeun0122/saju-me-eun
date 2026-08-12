@@ -43,6 +43,8 @@ function App() {
   const [selectedId, setSelectedId] = useState(null)
   const [viewingSaved, setViewingSaved] = useState(false)
   const [openingId, setOpeningId] = useState(null)
+  const [updating, setUpdating] = useState(false)
+  const [deletingId, setDeletingId] = useState(null)
 
   const resultRef = useRef(null)
   const nameInputRef = useRef(null)
@@ -99,6 +101,8 @@ function App() {
     setSelectedId(null)
     setViewingSaved(false)
     setOpeningId(null)
+    setUpdating(false)
+    setDeletingId(null)
 
     requestAnimationFrame(() => {
       nameInputRef.current?.focus()
@@ -106,24 +110,27 @@ function App() {
     })
   }
 
-  const formBusy = loading || saving
+  const formBusy = loading || saving || updating || deletingId !== null
   const missingFields = []
   if (!name.trim()) missingFields.push('이름')
   if (!birthDate) missingFields.push('생년월일')
   if (!gender) missingFields.push('성별')
   const canSubmit = missingFields.length === 0 && !formBusy
 
-  // 버튼 클릭 → Gemini 스트리밍 해석 → 완료 후 Supabase 저장
+  // 버튼 클릭 → Gemini 스트리밍 해석 → 완료 후 Supabase 저장(생성 또는 수정)
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!canSubmit) return
 
+    const isUpdate = Boolean(selectedId)
+
     setLoading(true)
     setSaving(false)
     setError('')
-    setResult('')
-    setSelectedId(null)
-    setViewingSaved(false)
+    if (!isUpdate) {
+      setResult('')
+      setViewingSaved(false)
+    }
 
     requestAnimationFrame(() => {
       resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -146,31 +153,117 @@ function App() {
       setLoading(false)
       setSaving(true)
 
-      const { data: saved, error: saveError } = await supabase
-        .from('saju_readings')
-        .insert({
-          name: name.trim(),
-          birth_date: birthDate,
-          birth_time: birthTime || null,
-          gender,
-          calendar_type: calendarType,
-          result: fullText,
-        })
-        .select('id, name, created_at')
-        .single()
+      const payload = {
+        name: name.trim(),
+        birth_date: birthDate,
+        birth_time: birthTime || null,
+        gender,
+        calendar_type: calendarType,
+        result: fullText,
+      }
 
-      if (saveError) throw saveError
+      if (isUpdate) {
+        const { error: updateError } = await supabase
+          .from('saju_readings')
+          .update(payload)
+          .eq('id', selectedId)
 
-      setSelectedId(saved.id)
-      setViewingSaved(true)
-      await loadReadings()
-      showToast('해석 결과가 저장되었습니다')
+        if (updateError) throw updateError
+
+        setViewingSaved(true)
+        await loadReadings()
+        showToast('해석 결과가 수정되었습니다')
+      } else {
+        const { data: saved, error: saveError } = await supabase
+          .from('saju_readings')
+          .insert(payload)
+          .select('id, name, created_at')
+          .single()
+
+        if (saveError) throw saveError
+
+        setSelectedId(saved.id)
+        setViewingSaved(true)
+        await loadReadings()
+        showToast('해석 결과가 저장되었습니다')
+      }
     } catch (err) {
       console.error(err)
       setError(err?.message || '해석 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.')
     } finally {
       setLoading(false)
       setSaving(false)
+    }
+  }
+
+  const buildReadingPayload = () => ({
+    name: name.trim(),
+    birth_date: birthDate,
+    birth_time: birthTime || null,
+    gender,
+    calendar_type: calendarType,
+    result: result || '',
+  })
+
+  const canSaveChanges =
+    selectedId &&
+    name.trim() &&
+    birthDate &&
+    gender &&
+    !formBusy
+
+  const handleSaveChanges = async () => {
+    if (!canSaveChanges) return
+
+    setUpdating(true)
+    setError('')
+
+    try {
+      const { error: updateError } = await supabase
+        .from('saju_readings')
+        .update(buildReadingPayload())
+        .eq('id', selectedId)
+
+      if (updateError) throw updateError
+
+      await loadReadings()
+      showToast('변경사항이 저장되었습니다')
+    } catch (err) {
+      console.error(err)
+      setError(err?.message || '변경사항 저장에 실패했습니다.')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleDeleteReading = async (id, readingName) => {
+    if (formBusy || deletingId === id) return
+
+    const confirmed = window.confirm(`"${readingName}" 사주 기록을 삭제할까요?`)
+    if (!confirmed) return
+
+    setDeletingId(id)
+    setError('')
+
+    try {
+      const { error: deleteError } = await supabase
+        .from('saju_readings')
+        .delete()
+        .eq('id', id)
+
+      if (deleteError) throw deleteError
+
+      if (selectedId === id) {
+        handleNewSaju()
+      }
+
+      await loadReadings()
+      showToast('사주 기록이 삭제되었습니다')
+    } catch (err) {
+      console.error(err)
+      setError(err?.message || '삭제에 실패했습니다.')
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -215,7 +308,9 @@ function App() {
     ? '해석 작성 중...'
     : saving
       ? '결과 저장 중...'
-      : '사주 해석하기'
+      : selectedId
+        ? '다시 해석 후 저장'
+        : '사주 해석하기'
 
   return (
     <div className="layout">
@@ -261,7 +356,7 @@ function App() {
               const isActive = selectedId === reading.id
               const isOpening = openingId === reading.id
               return (
-                <li key={reading.id}>
+                <li key={reading.id} className="sidebar-row">
                   <button
                     type="button"
                     className={`sidebar-item${isActive ? ' is-active' : ''}${isOpening ? ' is-opening' : ''}`}
@@ -273,6 +368,16 @@ function App() {
                     <span className="sidebar-item-date">
                       {isOpening ? '불러오는 중' : formatReadingDate(reading.created_at)}
                     </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="sidebar-delete"
+                    onClick={() => handleDeleteReading(reading.id, reading.name)}
+                    disabled={formBusy}
+                    aria-label={`${reading.name} 삭제`}
+                    title="삭제"
+                  >
+                    {deletingId === reading.id ? '…' : '×'}
                   </button>
                 </li>
               )
@@ -286,20 +391,38 @@ function App() {
           <p className="app-eyebrow">Saju Me</p>
           <h1>{viewingSaved ? '저장된 사주' : '사주 입력'}</h1>
           <p className="app-lead">
-            {viewingSaved
-              ? '저장된 결과를 보고 있습니다. 새로 쓰려면 새 사주 만들기를 눌러 주세요.'
+            {viewingSaved && selectedId
+              ? '입력값을 수정하거나 다시 해석할 수 있습니다. 정보만 바꿨다면 변경사항 저장을 눌러 주세요.'
               : '출생 정보를 입력하면 성격·기질·재능을 해석해 드립니다.'}
           </p>
         </header>
 
-        {viewingSaved && (
+        {viewingSaved && selectedId && (
           <div className="mode-banner" role="status">
             <span>
               <strong>{name || '선택됨'}</strong>님 기록 열람 중
             </span>
-            <button type="button" className="mode-banner-btn" onClick={handleNewSaju} disabled={formBusy}>
-              새로 쓰기
-            </button>
+            <div className="mode-banner-actions">
+              <button
+                type="button"
+                className="mode-banner-btn is-save"
+                onClick={handleSaveChanges}
+                disabled={!canSaveChanges}
+              >
+                {updating ? '저장 중...' : '변경사항 저장'}
+              </button>
+              <button
+                type="button"
+                className="mode-banner-btn is-delete"
+                onClick={() => handleDeleteReading(selectedId, name || '선택됨')}
+                disabled={formBusy}
+              >
+                삭제
+              </button>
+              <button type="button" className="mode-banner-btn" onClick={handleNewSaju} disabled={formBusy}>
+                새로 쓰기
+              </button>
+            </div>
           </div>
         )}
 
