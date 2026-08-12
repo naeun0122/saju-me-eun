@@ -40,5 +40,12 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 48px 16px 64px;
+  padding: 40px 16px 72px;
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  #root {
+    padding: 20px 12px 56px;
+  }
 }
