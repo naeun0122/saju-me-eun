@@ -46,6 +46,11 @@ function App() {
   const [updating, setUpdating] = useState(false)
   const [deletingId, setDeletingId] = useState(null)
 
+  // --- Google 로그인 ---
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [signingIn, setSigningIn] = useState(false)
+
   const resultRef = useRef(null)
   const nameInputRef = useRef(null)
   const toastTimerRef = useRef(null)
@@ -63,6 +68,11 @@ function App() {
   }, [])
 
   const loadReadings = async () => {
+    if (!user) {
+      setReadings([])
+      return
+    }
+
     const { data, error: loadError } = await supabase
       .from('saju_readings')
       .select('id, name, created_at')
@@ -78,12 +88,73 @@ function App() {
   }
 
   useEffect(() => {
+    let mounted = true
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return
+      setUser(session?.user ?? null)
+      setAuthLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+      setAuthLoading(false)
+    })
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authLoading) return
+
+    if (!user) {
+      setReadings([])
+      setListLoading(false)
+      setSelectedId(null)
+      setViewingSaved(false)
+      setResult('')
+      return
+    }
+
     ;(async () => {
       setListLoading(true)
       await loadReadings()
       setListLoading(false)
     })()
-  }, [])
+  }, [user, authLoading])
+
+  const handleSignInWithGoogle = async () => {
+    setSigningIn(true)
+    setError('')
+
+    const { error: signInError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    })
+
+    if (signInError) {
+      console.error(signInError)
+      setError(signInError.message || 'Google 로그인에 실패했습니다.')
+      setSigningIn(false)
+    }
+  }
+
+  const handleSignOut = async () => {
+    setError('')
+    handleNewSaju()
+    const { error: signOutError } = await supabase.auth.signOut()
+    if (signOutError) {
+      console.error(signOutError)
+      setError(signOutError.message || '로그아웃에 실패했습니다.')
+    } else {
+      showToast('로그아웃되었습니다')
+    }
+  }
 
   // 입력·결과·선택을 비우고 새 사주 작성 시작
   const handleNewSaju = () => {
@@ -110,8 +181,9 @@ function App() {
     })
   }
 
-  const formBusy = loading || saving || updating || deletingId !== null
+  const formBusy = loading || saving || updating || deletingId !== null || signingIn
   const missingFields = []
+  if (!user) missingFields.push('Google 로그인')
   if (!name.trim()) missingFields.push('이름')
   if (!birthDate) missingFields.push('생년월일')
   if (!gender) missingFields.push('성별')
@@ -120,7 +192,7 @@ function App() {
   // 버튼 클릭 → Gemini 스트리밍 해석 → 완료 후 Supabase 저장(생성 또는 수정)
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!canSubmit) return
+    if (!canSubmit || !user) return
 
     const isUpdate = Boolean(selectedId)
 
@@ -160,6 +232,7 @@ function App() {
         gender,
         calendar_type: calendarType,
         result: fullText,
+        user_id: user.id,
       }
 
       if (isUpdate) {
@@ -312,6 +385,12 @@ function App() {
         ? '다시 해석 후 저장'
         : '사주 해석하기'
 
+  const userLabel =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email ||
+    '로그인됨'
+
   return (
     <div className="layout">
       {toast && (
@@ -321,6 +400,33 @@ function App() {
       )}
 
       <aside className="sidebar" aria-label="저장된 사주">
+        <div className="auth-panel">
+          {authLoading ? (
+            <p className="auth-status">로그인 확인 중...</p>
+          ) : user ? (
+            <>
+              <p className="auth-user" title={user.email ?? ''}>
+                {userLabel}
+              </p>
+              <button type="button" className="auth-btn is-outline" onClick={handleSignOut} disabled={formBusy}>
+                로그아웃
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="auth-status">Google 로그인 후 내 사주가 저장됩니다.</p>
+              <button
+                type="button"
+                className="auth-btn is-google"
+                onClick={handleSignInWithGoogle}
+                disabled={signingIn}
+              >
+                {signingIn ? '연결 중...' : 'Google로 로그인'}
+              </button>
+            </>
+          )}
+        </div>
+
         <div className="sidebar-head">
           <h2 className="sidebar-title">저장된 사주</h2>
           {!listLoading && (
@@ -347,8 +453,17 @@ function App() {
           </div>
         ) : readings.length === 0 ? (
           <p className="sidebar-empty">
-            아직 저장된 사주가 없습니다.
-            <span>해석이 끝나면 여기에 이름이 쌓입니다.</span>
+            {user ? (
+              <>
+                아직 저장된 사주가 없습니다.
+                <span>해석이 끝나면 여기에 이름이 쌓입니다.</span>
+              </>
+            ) : (
+              <>
+                로그인하면 내 사주 목록이 여기에 표시됩니다.
+                <span>Google 계정으로 로그인해 주세요.</span>
+              </>
+            )}
           </p>
         ) : (
           <ul className="sidebar-list">
@@ -391,9 +506,11 @@ function App() {
           <p className="app-eyebrow">Saju Me</p>
           <h1>{viewingSaved ? '저장된 사주' : '사주 입력'}</h1>
           <p className="app-lead">
-            {viewingSaved && selectedId
-              ? '입력값을 수정하거나 다시 해석할 수 있습니다. 정보만 바꿨다면 변경사항 저장을 눌러 주세요.'
-              : '출생 정보를 입력하면 성격·기질·재능을 해석해 드립니다.'}
+            {!user
+              ? 'Google 로그인 후 사주를 저장하고 내 기록을 볼 수 있습니다.'
+              : viewingSaved && selectedId
+                ? '입력값을 수정하거나 다시 해석할 수 있습니다. 정보만 바꿨다면 변경사항 저장을 눌러 주세요.'
+                : '출생 정보를 입력하면 성격·기질·재능을 해석해 드립니다.'}
           </p>
         </header>
 
