@@ -59,11 +59,16 @@ npm run preview
 
 ```
 src/
-  App.jsx      # 입력 폼 + 결과 화면
-  App.css      # UI 스타일
-  gemini.js    # Gemini 스트리밍 호출 / 프롬프트
-  main.jsx     # 앱 진입점
-  index.css    # 전역 스타일
+  App.jsx                 # 화면 조립
+  main.jsx                # 앱 진입점
+  index.css               # 전역 토큰/배경
+  components/             # 기능별 UI (common, auth, profile, readings, saju)
+  hooks/                  # 앱 상태와 비즈니스 로직
+  api/                    # Supabase 조회/저장
+  lib/                    # supabase, gemini 클라이언트
+  utils/                  # 순수 유틸
+  constants/              # 마스코트/스토리지 키
+  styles/                 # 기능별 CSS
 ```
 
 ## 사용 방법

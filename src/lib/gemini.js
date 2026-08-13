@@ -1,11 +1,9 @@
 import { GoogleGenAI } from '@google/genai'
 
-// Gemini 클라이언트 (API 키는 .env의 VITE_GEMINI_API_KEY 사용)
 const ai = new GoogleGenAI({
   apiKey: import.meta.env.VITE_GEMINI_API_KEY,
 })
 
-// 사주 기본 차트 해석용 시스템 지시문
 const SYSTEM_INSTRUCTION = `return only Korean.
 
 당신은 사주 명식에 근거해 해석하는 전문가다.
@@ -25,7 +23,6 @@ const SYSTEM_INSTRUCTION = `return only Korean.
 
 return only Korean.`
 
-/** 만 나이 계산 */
 export function getManAge(birthDate) {
   const today = new Date()
   const birth = new Date(birthDate)
@@ -37,7 +34,6 @@ export function getManAge(birthDate) {
   return age
 }
 
-/** 입력값을 바탕으로 Gemini에 보낼 프롬프트 만들기 */
 export function buildSajuPrompt({ name, birthDate, birthTime, gender, calendarType }) {
   const age = getManAge(birthDate)
   const genderLabel = gender === 'male' ? 'male' : 'female'
@@ -55,10 +51,6 @@ export function buildSajuPrompt({ name, birthDate, birthTime, gender, calendarTy
 마지막은 질문으로 끝내지 말고 해석을 매듭지으세요.`
 }
 
-/**
- * Gemini 스트리밍 해석
- * onChunk(textSoFar): 글자가 올 때마다 지금까지 모은 전체 텍스트를 전달
- */
 export async function interpretSajuStream(formData, onChunk) {
   const stream = await ai.interactions.create({
     model: 'gemini-3.6-flash',
@@ -70,7 +62,6 @@ export async function interpretSajuStream(formData, onChunk) {
   let fullText = ''
 
   for await (const event of stream) {
-    // step.delta + text 타입일 때만 화면에 붙임
     if (event.event_type === 'step.delta' && event.delta?.type === 'text') {
       fullText += event.delta.text ?? ''
       onChunk(fullText)
