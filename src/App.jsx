@@ -16,6 +16,37 @@ const GUEST_FORM_KEY = 'saju.guest.form'
 const GUEST_RESULT_KEY = 'saju.guest.result'
 const GUEST_READINGS_KEY = 'saju.guest.readings'
 
+const MASCOT_MAIN = '/assets/eumppo.png'
+const MASCOT_LOADING = [
+  '/assets/eumppo-tehe.png',
+  '/assets/eumppo-sparkle.png',
+  '/assets/eumppo-kimi.png',
+]
+
+function LoadingMascot() {
+  const [index, setIndex] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setIndex((current) => (current + 1) % MASCOT_LOADING.length)
+    }, 1400)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div className="mascot-loading" aria-hidden="true">
+      {MASCOT_LOADING.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          className={`mascot-img mascot-img--loading${i === index ? ' is-active' : ''}`}
+        />
+      ))}
+    </div>
+  )
+}
+
 function normalizeMarkdown(text) {
   if (!text) return ''
   return text.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
@@ -918,7 +949,7 @@ function App() {
       <div className="app">
         <header className="app-header">
           <div className="mascot-hero" aria-hidden="true">
-            <img src="/assets/eumppo.png" alt="" className="mascot-img mascot-img--hero" />
+            <img src={MASCOT_MAIN} alt="" className="mascot-img mascot-img--hero" />
           </div>
           <p className="app-eyebrow">Saju Me · 요구르트 요정 음뽀쨔무</p>
           <h1>{showComposer ? '새 사주' : '사주 해석'}</h1>
@@ -975,9 +1006,7 @@ function App() {
 
         {(loading || saving) && !result && (
           <section className="result" ref={resultRef} aria-busy="true" aria-label="해석 준비 중">
-            <div className="mascot-loading" aria-hidden="true">
-              <img src="/assets/eumppo.png" alt="" className="mascot-img mascot-img--loading" />
-            </div>
+            <LoadingMascot />
             <h2>{saving ? '저장하는 중이다쨔무' : '읽는 중이다쨔무'}</h2>
             <p className="result-status">
               {saving ? '계정에 남기는 중이다쨔무' : '조금만 기다려라쨔무'}
@@ -1002,6 +1031,7 @@ function App() {
             ref={resultRef}
             key={selectedId ?? 'live'}
           >
+            {loading && <LoadingMascot />}
             <h2>
               {profileForm.name ? `${profileForm.name}님 사주` : '사주 해석'}
               {loading && <span className="streaming-dot" aria-label="작성 중" />}
@@ -1043,7 +1073,7 @@ function App() {
 
             {!loading && !showLockedPreview && (
               <figure className="mascot-rest">
-                <img src="/assets/eumppo.png" alt="음뽀쨔무" className="mascot-img mascot-img--rest" />
+                <img src={MASCOT_MAIN} alt="음뽀쨔무" className="mascot-img mascot-img--rest" />
                 <figcaption>옆에 누워 있다쨔무</figcaption>
               </figure>
             )}
