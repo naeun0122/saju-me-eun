@@ -42,6 +42,9 @@ export default function App() {
     showLockedPreview,
     showComposer,
     showSavedBanner,
+    sharedView,
+    sharing,
+    shareLoading,
     handleSignInWithGoogle,
     handleSignOut,
     handleSaveProfile,
@@ -52,6 +55,7 @@ export default function App() {
     handleDeleteReading,
     handleDeleteSelected,
     handleSelectReading,
+    handleShare,
   } = useSajuApp()
 
   return (
@@ -91,10 +95,19 @@ export default function App() {
       />
 
       <div className="app">
-        <AppHeader showComposer={showComposer} showLockedPreview={showLockedPreview} />
+        <AppHeader
+          showComposer={showComposer}
+          showLockedPreview={showLockedPreview}
+          isSharedView={sharedView}
+        />
 
-        {showSavedBanner && (
-          <SavedBanner onDelete={handleDeleteSelected} onNewSaju={handleNewSaju} disabled={formBusy} />
+        {(showSavedBanner || sharedView) && (
+          <SavedBanner
+            isSharedView={sharedView}
+            onDelete={handleDeleteSelected}
+            onNewSaju={handleNewSaju}
+            disabled={formBusy}
+          />
         )}
 
         {showComposer && !profileModal && (
@@ -116,14 +129,17 @@ export default function App() {
           result={result}
           visibleResult={visibleResult}
           profileForm={profileForm}
-          loading={loading}
+          loading={loading || shareLoading}
           saving={saving}
           composerOpen={composerOpen}
           viewingSaved={viewingSaved}
           showLockedPreview={showLockedPreview}
+          isSharedView={sharedView}
+          sharing={sharing}
           signingIn={signingIn}
           resultRef={resultRef}
           onSignIn={handleSignInWithGoogle}
+          onShare={handleShare}
         />
       </div>
     </div>

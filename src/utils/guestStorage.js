@@ -2,6 +2,7 @@ import {
   GUEST_FORM_KEY,
   GUEST_READINGS_KEY,
   GUEST_RESULT_KEY,
+  GUEST_SHARE_IDS_KEY,
   guestConsumedKey,
 } from '../constants/storage'
 import { emptyProfileForm } from './profileForm'
@@ -48,6 +49,32 @@ export function clearGuestStorage() {
     sessionStorage.removeItem(GUEST_FORM_KEY)
     sessionStorage.removeItem(GUEST_RESULT_KEY)
     sessionStorage.removeItem(GUEST_READINGS_KEY)
+    sessionStorage.removeItem(GUEST_SHARE_IDS_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+function readGuestShareIds() {
+  try {
+    const raw = sessionStorage.getItem(GUEST_SHARE_IDS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+export function readGuestShareId(form) {
+  return readGuestShareIds()[chartKey(form)] || ''
+}
+
+export function writeGuestShareId(form, shareId) {
+  try {
+    const all = readGuestShareIds()
+    all[chartKey(form)] = shareId
+    sessionStorage.setItem(GUEST_SHARE_IDS_KEY, JSON.stringify(all))
   } catch {
     /* ignore */
   }

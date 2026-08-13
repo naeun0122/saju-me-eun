@@ -3,6 +3,7 @@ import { MASCOT_MAIN } from '../../../constants/mascot'
 import { calendarLabel, genderLabel } from '../../../utils/format'
 import { LoadingMascot } from './LoadingMascot'
 import { ResultSkeleton } from './ResultSkeleton'
+import { ShareButton } from './ShareButton'
 
 export function ResultSection({
   result,
@@ -13,9 +14,12 @@ export function ResultSection({
   composerOpen,
   viewingSaved,
   showLockedPreview,
+  isSharedView,
+  sharing,
   signingIn,
   resultRef,
   onSignIn,
+  onShare,
 }) {
   if ((loading || saving) && !result) {
     return <ResultSkeleton saving={saving} resultRef={resultRef} />
@@ -27,7 +31,7 @@ export function ResultSection({
 
   return (
     <section
-      className={`result${viewingSaved ? ' is-saved' : ''}${showLockedPreview ? ' is-teaser' : ''}`}
+      className={`result${viewingSaved || isSharedView ? ' is-saved' : ''}${showLockedPreview ? ' is-teaser' : ''}`}
       ref={resultRef}
     >
       {loading && <LoadingMascot />}
@@ -54,6 +58,10 @@ export function ResultSection({
       <div className={`markdown ${loading ? 'is-streaming' : ''} ${showLockedPreview ? 'is-preview' : ''}`}>
         <ReactMarkdown>{visibleResult}</ReactMarkdown>
       </div>
+
+      {!loading && (
+        <ShareButton onShare={onShare} sharing={sharing} disabled={saving} />
+      )}
 
       {showLockedPreview && (
         <div className="result-lock">

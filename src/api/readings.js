@@ -1,8 +1,8 @@
 import { supabase } from '../lib/supabase'
 import { formToReadingPayload } from '../utils/readings'
 
-const LIST_COLUMNS = 'id, created_at, name, birth_date, birth_time, gender, calendar_type'
-const FULL_COLUMNS = 'id, result, created_at, name, birth_date, birth_time, gender, calendar_type'
+const LIST_COLUMNS = 'id, created_at, name, birth_date, birth_time, gender, calendar_type, share_id'
+const FULL_COLUMNS = 'id, result, created_at, name, birth_date, birth_time, gender, calendar_type, share_id'
 
 export async function fetchReadings(userId) {
   return supabase
@@ -46,4 +46,23 @@ export async function fetchReadingById(id) {
 
 export async function deleteReadingById(id) {
   return supabase.from('saju_readings').delete().eq('id', id)
+}
+
+export async function fetchSharedReading(shareId) {
+  return supabase.rpc('get_shared_reading', { p_share_id: shareId })
+}
+
+export async function publishSharedReading(form, fullText) {
+  return supabase.rpc('publish_shared_reading', {
+    p_result: fullText,
+    p_name: form.name.trim(),
+    p_birth_date: form.birthDate,
+    p_birth_time: form.birthTime || null,
+    p_gender: form.gender,
+    p_calendar_type: form.calendarType || 'solar',
+  })
+}
+
+export async function fetchShareIdByReadingId(id) {
+  return supabase.from('saju_readings').select('share_id').eq('id', id).single()
 }

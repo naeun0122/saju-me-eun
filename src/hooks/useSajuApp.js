@@ -4,8 +4,11 @@ import {
   deleteReadingById,
   fetchReadingById,
   fetchReadings,
+  fetchShareIdByReadingId,
+  fetchSharedReading,
   findExistingReading,
   insertReading,
+  publishSharedReading,
 } from '../api/readings'
 import { setAnalyticsUserId, trackEvent } from '../lib/analytics'
 import { interpretSajuStream } from '../lib/gemini'
@@ -18,14 +21,22 @@ import {
   markGuestConsumed,
   readGuestForm,
   readGuestResult,
+  readGuestShareId,
   wasGuestConsumed,
   writeGuestForm,
   writeGuestReading,
   writeGuestResult,
+  writeGuestShareId,
 } from '../utils/guestStorage'
 import { getPreviewText, normalizeMarkdown } from '../utils/markdown'
 import { emptyProfileForm, getMissingProfileFields, profileToForm } from '../utils/profileForm'
 import { readingToForm } from '../utils/readings'
+import {
+  buildShareUrl,
+  getShareIdFromLocation,
+  goHomePath,
+  shareOrCopy,
+} from '../utils/share'
 import { useToast } from './useToast'
 
 function clearAuthParamsFromUrl() {
@@ -41,7 +52,10 @@ function readOauthError() {
 }
 
 export function useSajuApp() {
-  const [result, setResult] = useState(() => normalizeMarkdown(readGuestResult()))
+  const initialShareId = getShareIdFromLocation()
+  const [result, setResult] = useState(() =>
+    initialShareId ? '' : normalizeMarkdown(readGuestResult()),
+  )
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(readOauthError)
@@ -51,7 +65,11 @@ export function useSajuApp() {
   const [listLoading, setListLoading] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [viewingSaved, setViewingSaved] = useState(false)
-  const [composerOpen, setComposerOpen] = useState(() => !readGuestResult())
+  const [composerOpen, setComposerOpen] = useState(() => !initialShareId && !readGuestResult())
+  const [shareId, setShareId] = useState(initialShareId)
+  const [sharedView, setSharedView] = useState(Boolean(initialShareId))
+  const [shareLoading, setShareLoading] = useState(Boolean(initialShareId))
+  const [sharing, setSharing] = useState(false)
   const [openingId, setOpeningId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
 
@@ -168,6 +186,55 @@ export function useSajuApp() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    const loadShared = async () => {
+      const id = getShareIdFromLocation()
+      if (!id) {
+        setShareLoading(false)
+        return
+      }
+
+      setShareLoading(true)
+      setComposerOpen(false)
+      const { data, error: shareError } = await fetchSharedReading(id)
+      if (cancelled) return
+      setShareLoading(false)
+
+      const row = Array.isArray(data) ? data[0] : data
+      if (shareError || !row) {
+        setError('이 사주 링크를 못 찾았다쨔무')
+        setSharedView(false)
+        return
+      }
+
+      setShareId(row.share_id || id)
+      setSharedView(true)
+      setResult(normalizeMarkdown(row.result ?? ''))
+      setProfileForm(readingToForm(row))
+      setViewingSaved(true)
+      setSelectedId(null)
+      setListLoading(false)
+    }
+
+    loadShared()
+    const onPopState = () => {
+      const id = getShareIdFromLocation()
+      if (id) {
+        loadShared()
+        return
+      }
+      setSharedView(false)
+      setShareId('')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      cancelled = true
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [])
+
+  useEffect(() => {
     let mounted = true
 
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -216,6 +283,12 @@ export function useSajuApp() {
 
     Promise.resolve().then(async () => {
       setListLoading(true)
+      if (getShareIdFromLocation()) {
+        await loadReadings(user.id)
+        if (!cancelled) setListLoading(false)
+        return
+      }
+
       const guestForm = readGuestForm()
       const guestResult = readGuestResult()
       const alreadyConsumed = wasGuestConsumed(user.id)
@@ -243,6 +316,7 @@ export function useSajuApp() {
           } else {
             const saved = await saveReading(user.id, guestResult, guestForm)
             setSelectedId(saved.id)
+            if (saved.share_id) setShareId(saved.share_id)
           }
           setViewingSaved(true)
           setComposerOpen(false)
@@ -303,9 +377,12 @@ export function useSajuApp() {
     setSelectedId(null)
     setViewingSaved(false)
     setComposerOpen(true)
+    setShareId('')
+    setSharedView(false)
     setOpeningId(null)
     setDeletingId(null)
     writeGuestResult('')
+    if (getShareIdFromLocation()) goHomePath()
     setProfileForm(
       emptyProfileForm(
         profile?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '',
@@ -358,6 +435,7 @@ export function useSajuApp() {
         } else {
           const saved = await saveReading(user.id, guestResult, profileForm)
           setSelectedId(saved.id)
+          if (saved.share_id) setShareId(saved.share_id)
         }
         setViewingSaved(true)
         setComposerOpen(false)
@@ -395,10 +473,10 @@ export function useSajuApp() {
     loading || saving || deletingId !== null || signingIn || profileSaving || profileLoading
   const canSubmit = getMissingProfileFields(profileForm).length === 0 && !formBusy
   const isGuest = !user
-  const showLockedPreview = Boolean(isGuest && result && !loading)
-  const visibleResult = isGuest ? getPreviewText(result, 0.5) : result
-  const showComposer = composerOpen && !showLockedPreview
-  const showSavedBanner = viewingSaved && selectedId && user && !composerOpen
+  const showLockedPreview = Boolean(isGuest && result && !loading && !sharedView)
+  const visibleResult = sharedView || user ? result : getPreviewText(result, 0.5)
+  const showComposer = composerOpen && !showLockedPreview && !sharedView
+  const showSavedBanner = viewingSaved && selectedId && user && !composerOpen && !sharedView
   const visibleReadings = user ? readings : []
   const visibleListLoading = user ? listLoading : authLoading
   const visibleSelectedId = user ? selectedId : null
@@ -412,6 +490,7 @@ export function useSajuApp() {
     setSelectedId(existing.id ?? null)
     setViewingSaved(saved)
     setComposerOpen(false)
+    if (existing.share_id) setShareId(existing.share_id)
     if (existing.name || existing.birth_date) {
       setProfileForm(readingToForm(existing))
     }
@@ -508,6 +587,7 @@ export function useSajuApp() {
       setSaving(true)
       const saved = await saveReading(user.id, fullText, profileForm)
       setSelectedId(saved.id)
+      if (saved.share_id) setShareId(saved.share_id)
       setViewingSaved(true)
       await loadReadings(user.id)
       trackEvent('save_reading')
@@ -578,11 +658,53 @@ export function useSajuApp() {
 
     setResult(normalizeMarkdown(data.result ?? ''))
     setComposerOpen(false)
+    setSharedView(false)
+    if (data.share_id) setShareId(data.share_id)
     if (data.name || data.birth_date) setProfileForm(readingToForm(data))
 
     requestAnimationFrame(() => {
       resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
+  }
+
+  const handleShare = async () => {
+    if (!result || loading || sharing) return
+
+    setSharing(true)
+    setError('')
+
+    try {
+      let id = shareId
+      if (!id && selectedId) {
+        const { data } = await fetchShareIdByReadingId(selectedId)
+        id = data?.share_id || ''
+      }
+      if (!id && !user) id = readGuestShareId(profileForm)
+      if (!id) {
+        const { data, error: publishError } = await publishSharedReading(profileForm, result)
+        if (publishError) throw publishError
+        id = data
+        if (!user) writeGuestShareId(profileForm, id)
+      }
+      if (!id) throw new Error('share id missing')
+
+      setShareId(id)
+      const url = buildShareUrl(id)
+      const name = profileForm.name?.trim() || '사주'
+      const status = await shareOrCopy({
+        title: `${name}님 사주 · 음뽀쨔무`,
+        text: '음뽀쨔무가 읽어준 사주 보려무나',
+        url,
+      })
+      trackEvent('share_reading', { method: status, is_guest: !user })
+      if (status === 'copied') showToast('링크를 복사했다쨔무')
+      if (status === 'shared') showToast('보냈다쨔무')
+    } catch (err) {
+      console.error(err)
+      setError('공유 링크를 못 만들었다쨔무')
+    } finally {
+      setSharing(false)
+    }
   }
 
   return {
@@ -616,6 +738,9 @@ export function useSajuApp() {
     showLockedPreview,
     showComposer,
     showSavedBanner,
+    sharedView,
+    sharing,
+    shareLoading,
     handleSignInWithGoogle,
     handleSignOut,
     handleSaveProfile,
@@ -626,5 +751,6 @@ export function useSajuApp() {
     handleDeleteReading,
     handleDeleteSelected,
     handleSelectReading,
+    handleShare,
   }
 }
