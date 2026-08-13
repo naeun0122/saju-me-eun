@@ -37,6 +37,115 @@ export function getMissingProfileFields(form) {
   return missing
 }
 
+export function ProfileFields({ form, onChange, idPrefix = 'profile' }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const setField = (key) => (e) => {
+    onChange({ ...form, [key]: e.target.value })
+  }
+
+  return (
+    <>
+      <div className="field">
+        <label htmlFor={`${idPrefix}-name`}>
+          이름 <span className="req" aria-hidden="true">*</span>
+        </label>
+        <input
+          id={`${idPrefix}-name`}
+          type="text"
+          placeholder="예: 김사주"
+          value={form.name}
+          onChange={setField('name')}
+          autoComplete="name"
+          required
+        />
+      </div>
+
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor={`${idPrefix}-birthDate`}>
+            생년월일 <span className="req" aria-hidden="true">*</span>
+          </label>
+          <input
+            id={`${idPrefix}-birthDate`}
+            type="date"
+            value={form.birthDate}
+            onChange={setField('birthDate')}
+            max={today}
+            required
+          />
+        </div>
+        <div className="field">
+          <label htmlFor={`${idPrefix}-birthTime`}>
+            태어난 시간 <span className="opt">선택</span>
+          </label>
+          <input
+            id={`${idPrefix}-birthTime`}
+            type="time"
+            value={form.birthTime}
+            onChange={setField('birthTime')}
+          />
+          <p className="field-hint">모르면 비워 두어도 됩니다</p>
+        </div>
+      </div>
+
+      <fieldset className="field">
+        <legend>
+          성별 <span className="req" aria-hidden="true">*</span>
+        </legend>
+        <div className="radio-row">
+          <label className="radio">
+            <input
+              type="radio"
+              name={`${idPrefix}-gender`}
+              value="male"
+              checked={form.gender === 'male'}
+              onChange={setField('gender')}
+            />
+            남성
+          </label>
+          <label className="radio">
+            <input
+              type="radio"
+              name={`${idPrefix}-gender`}
+              value="female"
+              checked={form.gender === 'female'}
+              onChange={setField('gender')}
+            />
+            여성
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset className="field">
+        <legend>양력 / 음력</legend>
+        <div className="radio-row">
+          <label className="radio">
+            <input
+              type="radio"
+              name={`${idPrefix}-calendarType`}
+              value="solar"
+              checked={form.calendarType === 'solar'}
+              onChange={setField('calendarType')}
+            />
+            양력
+          </label>
+          <label className="radio">
+            <input
+              type="radio"
+              name={`${idPrefix}-calendarType`}
+              value="lunar"
+              checked={form.calendarType === 'lunar'}
+              onChange={setField('calendarType')}
+            />
+            음력
+          </label>
+        </div>
+      </fieldset>
+    </>
+  )
+}
+
 export function ProfileModal({
   mode,
   form,
@@ -49,11 +158,6 @@ export function ProfileModal({
   const isOnboarding = mode === 'onboarding'
   const missing = getMissingProfileFields(form)
   const canSave = missing.length === 0 && !saving
-  const today = new Date().toISOString().slice(0, 10)
-
-  const setField = (key) => (e) => {
-    onChange({ ...form, [key]: e.target.value })
-  }
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -65,12 +169,12 @@ export function ProfileModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="profile-modal-title">
-          {isOnboarding ? '음뽀가 잠깐 물어볼게요' : '프로필 살짝 고치기'}
+          {isOnboarding ? '잠깐 물어볼게쨔무' : '프로필 수정'}
         </h2>
         <p className="modal-lead">
           {isOnboarding
-            ? '처음 왔구나 싶어요. 이름과 생일만 남겨두면, 다음부터는 바로 읽어줄게요.'
-            : '출생 정보를 바꾸면 다음 해석부터 반영돼요.'}
+            ? '저장하려면 이름과 생일이 필요하다쨔무'
+            : '여기 정보를 바꾸면 다음 사주부터 반영된다쨔무'}
         </p>
 
         <form
@@ -79,103 +183,7 @@ export function ProfileModal({
             if (canSave) onSubmit()
           }}
         >
-          <div className="field">
-            <label htmlFor="profile-name">
-              이름 <span className="req" aria-hidden="true">*</span>
-            </label>
-            <input
-              id="profile-name"
-              type="text"
-              placeholder="예: 김사주"
-              value={form.name}
-              onChange={setField('name')}
-              autoComplete="name"
-              autoFocus
-              required
-            />
-          </div>
-
-          <div className="field-row">
-            <div className="field">
-              <label htmlFor="profile-birthDate">
-                생년월일 <span className="req" aria-hidden="true">*</span>
-              </label>
-              <input
-                id="profile-birthDate"
-                type="date"
-                value={form.birthDate}
-                onChange={setField('birthDate')}
-                max={today}
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-birthTime">
-                태어난 시간 <span className="opt">선택</span>
-              </label>
-              <input
-                id="profile-birthTime"
-                type="time"
-                value={form.birthTime}
-                onChange={setField('birthTime')}
-              />
-              <p className="field-hint">모르면 비워 두어도 됩니다</p>
-            </div>
-          </div>
-
-          <fieldset className="field">
-            <legend>
-              성별 <span className="req" aria-hidden="true">*</span>
-            </legend>
-            <div className="radio-row">
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="profile-gender"
-                  value="male"
-                  checked={form.gender === 'male'}
-                  onChange={setField('gender')}
-                />
-                남성
-              </label>
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="profile-gender"
-                  value="female"
-                  checked={form.gender === 'female'}
-                  onChange={setField('gender')}
-                />
-                여성
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset className="field">
-            <legend>양력 / 음력</legend>
-            <div className="radio-row">
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="profile-calendarType"
-                  value="solar"
-                  checked={form.calendarType === 'solar'}
-                  onChange={setField('calendarType')}
-                />
-                양력
-              </label>
-              <label className="radio">
-                <input
-                  type="radio"
-                  name="profile-calendarType"
-                  value="lunar"
-                  checked={form.calendarType === 'lunar'}
-                  onChange={setField('calendarType')}
-                />
-                음력
-              </label>
-            </div>
-          </fieldset>
+          <ProfileFields form={form} onChange={onChange} idPrefix="profile" />
 
           {error && <p className="modal-error">{error}</p>}
 
@@ -186,12 +194,12 @@ export function ProfileModal({
               </button>
             )}
             <button type="submit" className="modal-btn is-primary" disabled={!canSave}>
-              {saving ? '저장 중...' : isOnboarding ? '저장하고 시작하기' : '프로필 저장'}
+              {saving ? '저장하는 중이다쨔무' : isOnboarding ? '저장하고 이어서 보자쨔무' : '프로필 저장'}
             </button>
           </div>
 
           {!canSave && !saving && missing.length > 0 && (
-            <p className="form-hint">{missing.join(' · ')}을(를) 입력해 주세요</p>
+            <p className="form-hint">{missing.join(' · ')}을 적어라쨔무</p>
           )}
         </form>
       </div>

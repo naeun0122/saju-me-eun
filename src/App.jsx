@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { interpretSajuStream } from './gemini'
 import { supabase } from './supabase'
 import {
+  ProfileFields,
   ProfileModal,
   emptyProfileForm,
   formToProfilePayload,
@@ -10,6 +11,10 @@ import {
   profileToForm,
 } from './ProfileModal'
 import './App.css'
+
+const GUEST_FORM_KEY = 'saju.guest.form'
+const GUEST_RESULT_KEY = 'saju.guest.result'
+const GUEST_READINGS_KEY = 'saju.guest.readings'
 
 function normalizeMarkdown(text) {
   if (!text) return ''
@@ -30,6 +35,133 @@ function formatReadingDate(iso) {
   }
 }
 
+function readGuestForm() {
+  try {
+    const raw = sessionStorage.getItem(GUEST_FORM_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? { ...emptyProfileForm(), ...parsed } : null
+  } catch {
+    return null
+  }
+}
+
+function readGuestResult() {
+  try {
+    return sessionStorage.getItem(GUEST_RESULT_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function writeGuestForm(form) {
+  try {
+    sessionStorage.setItem(GUEST_FORM_KEY, JSON.stringify(form))
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function writeGuestResult(result) {
+  try {
+    if (result) sessionStorage.setItem(GUEST_RESULT_KEY, result)
+    else sessionStorage.removeItem(GUEST_RESULT_KEY)
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function clearGuestStorage() {
+  try {
+    sessionStorage.removeItem(GUEST_FORM_KEY)
+    sessionStorage.removeItem(GUEST_RESULT_KEY)
+    sessionStorage.removeItem(GUEST_READINGS_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+function chartKey(form) {
+  return [
+    form.name?.trim() ?? '',
+    form.birthDate ?? '',
+    form.birthTime || '',
+    form.gender ?? '',
+    form.calendarType || 'solar',
+  ].join('|')
+}
+
+function readingToForm(reading) {
+  if (!reading) return emptyProfileForm()
+  return {
+    name: reading.name ?? '',
+    birthDate: reading.birth_date ?? '',
+    birthTime: reading.birth_time ? String(reading.birth_time).slice(0, 5) : '',
+    gender: reading.gender ?? '',
+    calendarType: reading.calendar_type ?? 'solar',
+  }
+}
+
+function formToReadingPayload(form) {
+  return {
+    name: form.name.trim(),
+    birth_date: form.birthDate,
+    birth_time: form.birthTime || null,
+    gender: form.gender,
+    calendar_type: form.calendarType || 'solar',
+  }
+}
+
+function readGuestReadings() {
+  try {
+    const raw = sessionStorage.getItem(GUEST_READINGS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeGuestReading(form, result) {
+  try {
+    const all = readGuestReadings()
+    all[chartKey(form)] = { form, result }
+    sessionStorage.setItem(GUEST_READINGS_KEY, JSON.stringify(all))
+  } catch {
+    /* ignore */
+  }
+}
+
+function findGuestReading(form) {
+  return readGuestReadings()[chartKey(form)] || null
+}
+
+function formatReadingLabel(reading) {
+  if (reading?.name && reading?.birth_date) {
+    return `${reading.name} · ${reading.birth_date}`
+  }
+  return formatReadingDate(reading?.created_at)
+}
+
+/** 비회원에게 보여줄 앞부분. 문단/줄 끊기는 곳에서 자른다. */
+function getPreviewText(text, ratio = 0.5) {
+  if (!text) return ''
+  const target = Math.max(180, Math.floor(text.length * ratio))
+  if (text.length <= target) return text
+
+  const slice = text.slice(0, target)
+  const breakAt = Math.max(
+    slice.lastIndexOf('\n\n'),
+    slice.lastIndexOf('\n'),
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('요.'),
+  )
+
+  const cut = breakAt > target * 0.35 ? slice.slice(0, breakAt) : slice
+  return cut.trimEnd()
+}
+
 function App() {
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
@@ -41,6 +173,7 @@ function App() {
   const [listLoading, setListLoading] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [viewingSaved, setViewingSaved] = useState(false)
+  const [composerOpen, setComposerOpen] = useState(true)
   const [openingId, setOpeningId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
 
@@ -57,6 +190,7 @@ function App() {
 
   const resultRef = useRef(null)
   const toastTimerRef = useRef(null)
+  const guestBootstrapped = useRef(false)
 
   const showToast = (message) => {
     setToast(message)
@@ -70,6 +204,11 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (user) return
+    writeGuestForm(profileForm)
+  }, [profileForm, user])
+
   const loadReadings = async (userId) => {
     if (!userId) {
       setReadings([])
@@ -78,7 +217,7 @@ function App() {
 
     const { data, error: loadError } = await supabase
       .from('saju_readings')
-      .select('id, created_at')
+      .select('id, created_at, name, birth_date, birth_time, gender, calendar_type')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
 
@@ -91,12 +230,64 @@ function App() {
     setReadings(data ?? [])
   }
 
-  const loadProfile = async (authUser) => {
+  const saveReading = async (userId, fullText, form) => {
+    const { data: saved, error: saveError } = await supabase
+      .from('saju_readings')
+      .insert({
+        user_id: userId,
+        result: fullText,
+        ...formToReadingPayload(form),
+      })
+      .select('id, created_at, name, birth_date, birth_time, gender, calendar_type')
+      .single()
+
+    if (saveError) throw saveError
+    return saved
+  }
+
+  const findExistingReading = async (userId, form) => {
+    let query = supabase
+      .from('saju_readings')
+      .select('id, result, created_at, name, birth_date, birth_time, gender, calendar_type')
+      .eq('user_id', userId)
+      .eq('name', form.name.trim())
+      .eq('birth_date', form.birthDate)
+      .eq('gender', form.gender)
+      .eq('calendar_type', form.calendarType || 'solar')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    query = form.birthTime ? query.eq('birth_time', form.birthTime) : query.is('birth_time', null)
+
+    const { data, error: findError } = await query
+    if (findError) {
+      console.error(findError)
+      return null
+    }
+    return data?.[0] ?? null
+  }
+
+  const upsertProfileFromForm = async (authUser, form) => {
+    const payload = {
+      id: authUser.id,
+      ...formToProfilePayload(form),
+    }
+
+    const { data, error: saveError } = await supabase
+      .from('users')
+      .upsert(payload, { onConflict: 'id' })
+      .select('*')
+      .single()
+
+    if (saveError) throw saveError
+    return data
+  }
+
+  const loadProfile = async (authUser, guestForm) => {
     if (!authUser) {
       setProfile(null)
-      setProfileForm(emptyProfileForm())
       setProfileModal(null)
-      return
+      return null
     }
 
     setProfileLoading(true)
@@ -111,24 +302,51 @@ function App() {
     if (profileLoadError) {
       console.error(profileLoadError)
       setError('프로필을 불러오지 못했습니다.')
-      return
+      return null
     }
 
-    if (!data) {
-      const googleName =
-        authUser.user_metadata?.full_name ||
-        authUser.user_metadata?.name ||
-        ''
-      setProfile(null)
-      setProfileForm(emptyProfileForm(googleName))
-      setProfileError('')
-      setProfileModal('onboarding')
-      return
+    if (data) {
+      setProfile(data)
+      if (!guestForm || getMissingProfileFields(guestForm).length > 0) {
+        setProfileForm(profileToForm(data))
+      } else {
+        setProfileForm(guestForm)
+      }
+      setProfileModal(null)
+      return data
     }
 
-    setProfile(data)
-    setProfileForm(profileToForm(data))
-    setProfileModal(null)
+    const googleName =
+      authUser.user_metadata?.full_name ||
+      authUser.user_metadata?.name ||
+      ''
+    const incoming = guestForm
+      ? { ...guestForm, name: guestForm.name?.trim() || googleName }
+      : emptyProfileForm(googleName)
+
+    setProfile(null)
+    setProfileForm(incoming)
+    setProfileError('')
+
+    if (getMissingProfileFields(incoming).length === 0) {
+      try {
+        setProfileSaving(true)
+        const saved = await upsertProfileFromForm(authUser, incoming)
+        setProfile(saved)
+        setProfileForm(profileToForm(saved))
+        setProfileModal(null)
+        return saved
+      } catch (err) {
+        console.error(err)
+        setProfileModal('onboarding')
+        return null
+      } finally {
+        setProfileSaving(false)
+      }
+    }
+
+    setProfileModal('onboarding')
+    return null
   }
 
   const clearAuthParamsFromUrl = () => {
@@ -166,7 +384,7 @@ function App() {
         const params = new URLSearchParams(window.location.search)
         const fromOAuth = params.has('code') || window.location.hash.includes('access_token')
         clearAuthParamsFromUrl()
-        if (fromOAuth) showToast('Google 로그인에 성공했습니다')
+        if (fromOAuth) showToast('로그인했다쨔무. 나머지도 보여줄게쨔무')
       }
     })
 
@@ -184,16 +402,76 @@ function App() {
       setListLoading(false)
       setSelectedId(null)
       setViewingSaved(false)
-      setResult('')
       setProfile(null)
-      setProfileForm(emptyProfileForm())
       setProfileModal(null)
+
+      if (!guestBootstrapped.current) {
+        guestBootstrapped.current = true
+        const savedForm = readGuestForm()
+        const savedResult = readGuestResult()
+        if (savedForm) setProfileForm(savedForm)
+        if (savedResult) {
+          setResult(normalizeMarkdown(savedResult))
+          setComposerOpen(false)
+        }
+      }
       return
     }
 
+    guestBootstrapped.current = true
+
     ;(async () => {
       setListLoading(true)
-      await Promise.all([loadProfile(user), loadReadings(user.id)])
+      const guestForm = readGuestForm()
+      const guestResult = readGuestResult()
+      const consumeKey = `saju.guest.consumed:${user.id}`
+      let alreadyConsumed = false
+      try {
+        alreadyConsumed = sessionStorage.getItem(consumeKey) === '1'
+      } catch {
+        alreadyConsumed = false
+      }
+
+      if (guestResult && !alreadyConsumed) {
+        setResult(normalizeMarkdown(guestResult))
+        setComposerOpen(false)
+      }
+      if (guestForm && !alreadyConsumed) setProfileForm(guestForm)
+
+      const loadedProfile = await loadProfile(user, alreadyConsumed ? null : guestForm)
+
+      if (!alreadyConsumed && guestResult && loadedProfile && guestForm) {
+        try {
+          sessionStorage.setItem(consumeKey, '1')
+          setSaving(true)
+          const existing = await findExistingReading(user.id, guestForm)
+          if (existing) {
+            setSelectedId(existing.id)
+            setResult(normalizeMarkdown(existing.result ?? guestResult))
+            setProfileForm(readingToForm(existing))
+          } else {
+            const saved = await saveReading(user.id, guestResult, guestForm)
+            setSelectedId(saved.id)
+          }
+          setViewingSaved(true)
+          setComposerOpen(false)
+          clearGuestStorage()
+          showToast('해석을 저장했다쨔무')
+        } catch (err) {
+          console.error(err)
+        } finally {
+          setSaving(false)
+        }
+      } else if (loadedProfile) {
+        try {
+          sessionStorage.setItem(consumeKey, '1')
+        } catch {
+          /* ignore */
+        }
+        clearGuestStorage()
+      }
+
+      await loadReadings(user.id)
       setListLoading(false)
     })()
   }, [user, authLoading])
@@ -201,6 +479,8 @@ function App() {
   const handleSignInWithGoogle = async () => {
     setSigningIn(true)
     setError('')
+    writeGuestForm(profileForm)
+    if (result) writeGuestResult(result)
 
     const { error: signInError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -219,13 +499,21 @@ function App() {
 
   const handleSignOut = async () => {
     setError('')
+    clearGuestStorage()
+    try {
+      Object.keys(sessionStorage)
+        .filter((key) => key.startsWith('saju.guest.consumed:'))
+        .forEach((key) => sessionStorage.removeItem(key))
+    } catch {
+      /* ignore */
+    }
     handleNewSaju()
     const { error: signOutError } = await supabase.auth.signOut()
     if (signOutError) {
       console.error(signOutError)
       setError(signOutError.message || '로그아웃에 실패했습니다.')
     } else {
-      showToast('로그아웃되었습니다')
+      showToast('로그아웃했다쨔무')
     }
   }
 
@@ -237,29 +525,38 @@ function App() {
     setProfileSaving(true)
     setProfileError('')
 
-    const payload = {
-      id: user.id,
-      ...formToProfilePayload(profileForm),
-    }
-
     try {
-      const { data, error: saveError } = await supabase
-        .from('users')
-        .upsert(payload, { onConflict: 'id' })
-        .select('*')
-        .single()
-
-      if (saveError) throw saveError
-
+      const data = await upsertProfileFromForm(user, profileForm)
       setProfile(data)
       setProfileForm(profileToForm(data))
       setProfileModal(null)
-      showToast(profile ? '프로필이 수정되었습니다' : '프로필이 저장되었습니다')
+      showToast(profile ? '프로필을 고쳤다쨔무' : '프로필을 저장했다쨔무')
+
+      const guestResult = readGuestResult() || result
+      if (guestResult && !selectedId) {
+        setSaving(true)
+        const existing = await findExistingReading(user.id, profileForm)
+        if (existing) {
+          setSelectedId(existing.id)
+          setResult(normalizeMarkdown(existing.result ?? guestResult))
+          setProfileForm(readingToForm(existing))
+        } else {
+          const saved = await saveReading(user.id, guestResult, profileForm)
+          setSelectedId(saved.id)
+        }
+        setViewingSaved(true)
+        setComposerOpen(false)
+        setResult(normalizeMarkdown(guestResult))
+        clearGuestStorage()
+        await loadReadings(user.id)
+        showToast('해석을 저장했다쨔무')
+      }
     } catch (err) {
       console.error(err)
       setProfileError(err?.message || '프로필 저장에 실패했습니다.')
     } finally {
       setProfileSaving(false)
+      setSaving(false)
     }
   }
 
@@ -272,31 +569,73 @@ function App() {
     setSaving(false)
     setSelectedId(null)
     setViewingSaved(false)
+    setComposerOpen(true)
     setOpeningId(null)
     setDeletingId(null)
-    if (profile) setProfileForm(profileToForm(profile))
+    writeGuestResult('')
+    setProfileForm(
+      emptyProfileForm(
+        profile?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || '',
+      ),
+    )
 
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const formBusy =
     loading || saving || deletingId !== null || signingIn || profileSaving || profileLoading
-  const profileReady = Boolean(profile)
-  const canSubmit = Boolean(user) && profileReady && getMissingProfileFields(profileForm).length === 0 && !formBusy
+  const canSubmit = getMissingProfileFields(profileForm).length === 0 && !formBusy
+  const isGuest = !user
+  const showLockedPreview = Boolean(isGuest && result && !loading)
+  const visibleResult = isGuest ? getPreviewText(result, 0.5) : result
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!canSubmit || !user || !profile) return
+  const showExistingReading = (existing, { saved = false } = {}) => {
+    setResult(normalizeMarkdown(existing.result ?? ''))
+    setSelectedId(existing.id ?? null)
+    setViewingSaved(saved)
+    setComposerOpen(false)
+    if (existing.name || existing.birth_date) {
+      setProfileForm(readingToForm(existing))
+    }
+    requestAnimationFrame(() => {
+      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
 
-    const isUpdate = Boolean(selectedId)
+  const runInterpretation = async () => {
+    if (!canSubmit) return
+
+    setError('')
+
+    if (!user) {
+      const cached = findGuestReading(profileForm)
+      if (cached?.result) {
+        setResult(normalizeMarkdown(cached.result))
+        setComposerOpen(false)
+        writeGuestForm(profileForm)
+        writeGuestResult(cached.result)
+        showToast('이미 읽어둔 사주다쨔무')
+        requestAnimationFrame(() => {
+          resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+        return
+      }
+    }
+
+    if (user) {
+      const existing = await findExistingReading(user.id, profileForm)
+      if (existing?.result) {
+        showExistingReading(existing, { saved: true })
+        showToast('이미 읽어둔 사주다쨔무')
+        return
+      }
+    }
 
     setLoading(true)
     setSaving(false)
-    setError('')
-    if (!isUpdate) {
-      setResult('')
-      setViewingSaved(false)
-    }
+    setResult('')
+    setViewingSaved(false)
+    setSelectedId(null)
 
     requestAnimationFrame(() => {
       resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -316,44 +655,45 @@ function App() {
         },
       )
 
+      const normalized = normalizeMarkdown(fullText)
+      setResult(normalized)
       setLoading(false)
-      setSaving(true)
+      setComposerOpen(false)
 
-      if (isUpdate) {
-        const { error: updateError } = await supabase
-          .from('saju_readings')
-          .update({ result: fullText })
-          .eq('id', selectedId)
-
-        if (updateError) throw updateError
-
-        setViewingSaved(true)
-        await loadReadings(user.id)
-        showToast('해석 결과가 수정되었습니다')
-      } else {
-        const { data: saved, error: saveError } = await supabase
-          .from('saju_readings')
-          .insert({
-            user_id: user.id,
-            result: fullText,
-          })
-          .select('id, created_at')
-          .single()
-
-        if (saveError) throw saveError
-
-        setSelectedId(saved.id)
-        setViewingSaved(true)
-        await loadReadings(user.id)
-        showToast('해석 결과가 저장되었습니다')
+      if (!user) {
+        writeGuestForm(profileForm)
+        writeGuestResult(normalized)
+        writeGuestReading(profileForm, normalized)
+        showToast('앞부분만 먼저 보여줄게쨔무')
+        return
       }
+
+      if (!profile) {
+        writeGuestForm(profileForm)
+        writeGuestResult(normalized)
+        writeGuestReading(profileForm, normalized)
+        setProfileModal('onboarding')
+        return
+      }
+
+      setSaving(true)
+      const saved = await saveReading(user.id, fullText, profileForm)
+      setSelectedId(saved.id)
+      setViewingSaved(true)
+      await loadReadings(user.id)
+      showToast('해석을 저장했다쨔무')
     } catch (err) {
       console.error(err)
-      setError(err?.message || '해석 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+      setError(err?.message || '해석에 실패했다쨔무. 잠시 뒤 다시 해봐라쨔무.')
     } finally {
       setLoading(false)
       setSaving(false)
     }
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    runInterpretation()
   }
 
   const handleDeleteReading = async (id, label) => {
@@ -376,7 +716,7 @@ function App() {
       if (selectedId === id) handleNewSaju()
 
       await loadReadings(user.id)
-      showToast('사주 기록이 삭제되었습니다')
+      showToast('기록을 지웠다쨔무')
     } catch (err) {
       console.error(err)
       setError(err?.message || '삭제에 실패했습니다.')
@@ -395,7 +735,7 @@ function App() {
 
     const { data, error: fetchError } = await supabase
       .from('saju_readings')
-      .select('id, result, created_at')
+      .select('id, result, created_at, name, birth_date, birth_time, gender, calendar_type')
       .eq('id', id)
       .single()
 
@@ -403,11 +743,13 @@ function App() {
 
     if (fetchError) {
       console.error(fetchError)
-      setError(fetchError.message || '저장된 해석을 불러오지 못했습니다.')
+      setError(fetchError.message || '저장된 해석을 못 불러왔다쨔무.')
       return
     }
 
     setResult(normalizeMarkdown(data.result ?? ''))
+    setComposerOpen(false)
+    if (data.name || data.birth_date) setProfileForm(readingToForm(data))
 
     requestAnimationFrame(() => {
       resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -418,14 +760,14 @@ function App() {
   const calendarLabel = profileForm.calendarType === 'lunar' ? '음력' : profileForm.calendarType === 'solar' ? '양력' : ''
   const timeLabel = profileForm.birthTime || '시간 미상'
   const submitLabel = loading
-    ? '음뽀가 읽는 중...'
+    ? '읽는 중이다쨔무'
     : saving
-      ? '살짝 저장하는 중...'
-      : selectedId
-        ? '다시 읽어 저장하기'
-        : '음뽀에게 물어보기'
+      ? '저장하는 중이다쨔무'
+      : '해석해주겠다쨔무'
 
   const displayName = profile?.name || user?.user_metadata?.full_name || user?.email || '로그인됨'
+  const showComposer = composerOpen && !showLockedPreview
+  const showSavedBanner = viewingSaved && selectedId && user && !composerOpen
 
   return (
     <div className="layout">
@@ -456,7 +798,7 @@ function App() {
       <aside className="sidebar" aria-label="저장된 사주">
         <div className="auth-panel">
           {authLoading ? (
-            <p className="auth-status">로그인 확인 중...</p>
+            <p className="auth-status">로그인 보는 중이다쨔무</p>
           ) : user ? (
             <>
               <p className="auth-user" title={user.email ?? ''}>
@@ -485,21 +827,21 @@ function App() {
             </>
           ) : (
             <>
-              <p className="auth-status">Google 로그인 후 내 사주가 저장됩니다.</p>
+              <p className="auth-status">로그인 안 해도 된다쨔무. 저장은 로그인하면 된다쨔무.</p>
               <button
                 type="button"
                 className="auth-btn is-google"
                 onClick={handleSignInWithGoogle}
                 disabled={signingIn}
               >
-                {signingIn ? '연결 중...' : 'Google로 로그인'}
+                {signingIn ? '연결 중이다쨔무' : 'Google로 로그인하자쨔무'}
               </button>
             </>
           )}
         </div>
 
         <div className="sidebar-head">
-          <h2 className="sidebar-title">음뽀의 기록</h2>
+          <h2 className="sidebar-title">음뽀쨔무의 기록</h2>
           {!listLoading && (
             <span className="sidebar-count" aria-label={`${readings.length}건`}>
               {readings.length}
@@ -511,9 +853,9 @@ function App() {
           type="button"
           className="new-saju-btn"
           onClick={handleNewSaju}
-          disabled={formBusy || !user || !profile}
+          disabled={formBusy}
         >
-          새 해석 하기
+          새 사주 만들기
         </button>
 
         {listLoading || profileLoading ? (
@@ -526,13 +868,13 @@ function App() {
           <p className="sidebar-empty">
             {user ? (
               <>
-                아직 해석이 없어요.
-                <span>다 읽으면 날짜별로 차곡차곡 쌓여요.</span>
+                아직 기록이 없다쨔무.
+                <span>새 사주를 만들면 여기 쌓인다쨔무.</span>
               </>
             ) : (
               <>
-                로그인하면 내 사주가 여기에 모여요.
-                <span>Google로 살짝 들어와 주세요.</span>
+                기록은 로그인하면 모인다쨔무.
+                <span>지금은 바로 적어봐라쨔무.</span>
               </>
             )}
           </p>
@@ -541,7 +883,7 @@ function App() {
             {readings.map((reading, index) => {
               const isActive = selectedId === reading.id
               const isOpening = openingId === reading.id
-              const label = formatReadingDate(reading.created_at) || `해석 ${readings.length - index}`
+              const label = formatReadingLabel(reading) || `사주 ${readings.length - index}`
               return (
                 <li key={reading.id} className="sidebar-row">
                   <button
@@ -553,7 +895,7 @@ function App() {
                   >
                     <span className="sidebar-item-name">{label}</span>
                     <span className="sidebar-item-date">
-                      {isOpening ? '불러오는 중' : `${displayName}님`}
+                      {isOpening ? '여는 중이다쨔무' : formatReadingDate(reading.created_at)}
                     </span>
                   </button>
                   <button
@@ -578,86 +920,49 @@ function App() {
           <div className="mascot-hero" aria-hidden="true">
             <img src="/assets/eumppo.png" alt="" className="mascot-img mascot-img--hero" />
           </div>
-          <p className="app-eyebrow">Saju Me · 음뽀</p>
-          <h1>{viewingSaved ? '저장된 해석' : '사주 해석'}</h1>
+          <p className="app-eyebrow">Saju Me · 요구르트 요정 음뽀쨔무</p>
+          <h1>{showComposer ? '새 사주' : '사주 해석'}</h1>
           <p className="app-lead">
-            {!user
-              ? '로그인하고 프로필만 살짝 남겨두면, 음뽀가 천천히 사주를 읽어 줄게요.'
-              : viewingSaved && selectedId
-                ? '예전에 본 해석이에요. 다시 보면 기록이 새로 바뀌어요.'
-                : '저장된 프로필로, 음뽀가 설렁설렁 읽어 줄게요.'}
+            {showComposer
+              ? '날짜랑 시간을 적으면 읽어주겠다쨔무'
+              : showLockedPreview
+                ? '앞부분만 먼저 보여줄게쨔무'
+                : '이 사주는 이렇게 읽었다쨔무'}
           </p>
         </header>
 
-        {viewingSaved && selectedId && (
+        {showSavedBanner && (
           <div className="mode-banner" role="status">
-            <span>이전 해석 열람 중</span>
+            <span>저장해 둔 사주다쨔무</span>
             <div className="mode-banner-actions">
               <button
                 type="button"
                 className="mode-banner-btn is-delete"
                 onClick={() =>
-                  handleDeleteReading(selectedId, formatReadingDate(readings.find((item) => item.id === selectedId)?.created_at) || '이 기록')
+                  handleDeleteReading(selectedId, formatReadingLabel(readings.find((item) => item.id === selectedId)) || '이 기록')
                 }
                 disabled={formBusy}
               >
                 삭제
               </button>
               <button type="button" className="mode-banner-btn" onClick={handleNewSaju} disabled={formBusy}>
-                새 해석
+                새 사주 만들기
               </button>
             </div>
           </div>
         )}
 
-        {!authLoading && !user && (
-          <div className="login-gate">
-            <p>Google 계정으로 로그인하면 사주가 내 계정에만 저장됩니다.</p>
-            <button
-              type="button"
-              className="auth-btn is-google"
-              onClick={handleSignInWithGoogle}
-              disabled={signingIn}
-            >
-              {signingIn ? '연결 중...' : 'Google로 로그인'}
+        {showComposer && !profileModal && (
+          <form onSubmit={handleSubmit} className={formBusy ? 'is-busy' : ''}>
+            <ProfileFields form={profileForm} onChange={setProfileForm} idPrefix="saju" />
+            <button type="submit" disabled={!canSubmit} aria-busy={formBusy}>
+              {submitLabel}
             </button>
-          </div>
+            {!canSubmit && !formBusy && getMissingProfileFields(profileForm).length > 0 && (
+              <p className="form-hint">이름, 생일, 성별을 적으면 된다쨔무</p>
+            )}
+          </form>
         )}
-
-        {user && profile && (
-          <section className="profile-card" aria-label="내 프로필">
-            <div className="profile-card-head">
-              <h2>{profile.name}님</h2>
-              <button
-                type="button"
-                className="profile-edit-btn"
-                onClick={() => {
-                  setProfileForm(profileToForm(profile))
-                  setProfileError('')
-                  setProfileModal('edit')
-                }}
-                disabled={formBusy}
-              >
-                수정
-              </button>
-            </div>
-            <div className="result-meta" aria-label="사주 입력 정보">
-              <span>{profile.birth_date}</span>
-              <span>{profile.birth_time ? String(profile.birth_time).slice(0, 5) : '시간 미상'}</span>
-              <span>{genderLabel}</span>
-              <span>{calendarLabel}</span>
-            </div>
-          </section>
-        )}
-
-        <form onSubmit={handleSubmit} className={formBusy || !user || !profile ? 'is-busy' : ''}>
-          <button type="submit" disabled={!canSubmit} aria-busy={formBusy}>
-            {submitLabel}
-          </button>
-          {user && !profile && !profileLoading && !profileModal && (
-            <p className="form-hint">프로필을 먼저 저장해 주세요</p>
-          )}
-        </form>
 
         {error && (
           <div className="error" role="alert">
@@ -673,11 +978,9 @@ function App() {
             <div className="mascot-loading" aria-hidden="true">
               <img src="/assets/eumppo.png" alt="" className="mascot-img mascot-img--loading" />
             </div>
-            <h2>{saving ? '살짝 저장하는 중' : '음뽀가 읽는 중'}</h2>
+            <h2>{saving ? '저장하는 중이다쨔무' : '읽는 중이다쨔무'}</h2>
             <p className="result-status">
-              {saving
-                ? '다 읽으면 목록에 조용히 남겨둘게요.'
-                : '조금만 기다려 주세요. 천천히 글이 이어질 거예요.'}
+              {saving ? '계정에 남기는 중이다쨔무' : '조금만 기다려라쨔무'}
             </p>
             <div className="skeleton">
               <div className="skeleton-line skeleton-title" />
@@ -693,18 +996,18 @@ function App() {
           </section>
         )}
 
-        {result && (
+        {result && !composerOpen && (
           <section
-            className={`result${viewingSaved ? ' is-saved' : ''}`}
+            className={`result${viewingSaved ? ' is-saved' : ''}${showLockedPreview ? ' is-teaser' : ''}`}
             ref={resultRef}
             key={selectedId ?? 'live'}
           >
             <h2>
-              {profileForm.name ? `${profileForm.name}님, 이렇게 보여요` : '음뽀의 해석'}
+              {profileForm.name ? `${profileForm.name}님 사주` : '사주 해석'}
               {loading && <span className="streaming-dot" aria-label="작성 중" />}
             </h2>
 
-            {(viewingSaved || (!loading && !saving)) && (
+            {(!loading && !saving) && (
               <div className="result-meta" aria-label="사주 입력 정보">
                 {profileForm.birthDate && <span>{profileForm.birthDate}</span>}
                 <span>{timeLabel}</span>
@@ -715,18 +1018,33 @@ function App() {
 
             {saving && (
               <p className="result-status is-inline" aria-live="polite">
-                결과를 살짝 저장하는 중이에요...
+                저장하는 중이다쨔무
               </p>
             )}
 
-            <div className={`markdown ${loading ? 'is-streaming' : ''}`}>
-              <ReactMarkdown>{result}</ReactMarkdown>
+            <div className={`markdown ${loading ? 'is-streaming' : ''} ${showLockedPreview ? 'is-preview' : ''}`}>
+              <ReactMarkdown>{visibleResult}</ReactMarkdown>
             </div>
 
-            {!loading && (
+            {showLockedPreview && (
+              <div className="result-lock">
+                <p className="result-lock-title">나머지도 있다쨔무</p>
+                <p className="result-lock-lead">로그인하면 이어서 보여줄게쨔무</p>
+                <button
+                  type="button"
+                  className="auth-btn is-google"
+                  onClick={handleSignInWithGoogle}
+                  disabled={signingIn}
+                >
+                  {signingIn ? '연결 중이다쨔무' : '로그인하고 이어서 보자쨔무'}
+                </button>
+              </div>
+            )}
+
+            {!loading && !showLockedPreview && (
               <figure className="mascot-rest">
-                <img src="/assets/eumppo.png" alt="음뽀 마스코트" className="mascot-img mascot-img--rest" />
-                <figcaption>음뽀가 옆에 누워서 듣고 있어요</figcaption>
+                <img src="/assets/eumppo.png" alt="음뽀쨔무" className="mascot-img mascot-img--rest" />
+                <figcaption>옆에 누워 있다쨔무</figcaption>
               </figure>
             )}
           </section>
