@@ -5,7 +5,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!google1568282f4b61ca00\\.html).*)",
       "destination": "/index.html"
     }
   ]
