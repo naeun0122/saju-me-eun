@@ -1,5 +1,14 @@
 @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css');
 
+/* 그리운 프롬솔 — https://noonnu.cc/font_page/1886 */
+@font-face {
+  font-family: 'DearFromsol';
+  src: url('https://cdn.jsdelivr.net/gh/Project-Noonnu/2607161334@griun-fromsol-rg/griun-fromsol-rg/Griun_Fromsol-Rg.woff2')
+    format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   --cream: #fff7eb;
   --cream-deep: #f9f0e0;
@@ -8,6 +17,7 @@
   --ink: #2c2a24;
   --ink-soft: #5c574c;
   --font: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: 'DearFromsol', 'Pretendard', sans-serif;
 }
 
 *,

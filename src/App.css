@@ -125,11 +125,169 @@
   opacity: 0.55;
 }
 
+.auth-panel .auth-btn + .auth-btn {
+  margin-top: 0.4rem;
+}
+
+.auth-meta {
+  margin: -0.25rem 0 0.55rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.profile-card {
+  margin-bottom: 1.15rem;
+  padding: 1rem 1.05rem 0.95rem;
+  background: var(--cream-deep);
+  border: 1px solid rgba(162, 171, 115, 0.35);
+  border-radius: 14px;
+}
+
+.profile-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.profile-card-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--olive);
+}
+
+.profile-edit-btn {
+  padding: 0.3rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--rose);
+  background: #fff;
+  border: 1px solid rgba(204, 58, 99, 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.profile-edit-btn:hover:not(:disabled) {
+  color: #fff;
+  background: var(--rose);
+}
+
+.profile-edit-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(44, 42, 36, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 2.5rem);
+  overflow-y: auto;
+  padding: 1.4rem 1.3rem 1.25rem;
+  background: var(--cream);
+  border: 1px solid rgba(162, 171, 115, 0.35);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(44, 42, 36, 0.18);
+}
+
+.modal h2 {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+  color: var(--olive);
+}
+
+.modal-lead {
+  margin: 0 0 1.1rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.modal-error {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--rose);
+  background: rgba(204, 58, 99, 0.08);
+  border-radius: 8px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.modal-btn {
+  padding: 0.65rem 0.95rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.modal-btn.is-ghost {
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid rgba(162, 171, 115, 0.4);
+}
+
+.modal-btn.is-primary {
+  color: #fff;
+  background: var(--rose);
+  border: none;
+}
+
+.modal-btn.is-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.login-gate {
+  margin-bottom: 1.15rem;
+  padding: 0.9rem 0.95rem;
+  text-align: center;
+  background: rgba(66, 133, 244, 0.08);
+  border: 1px solid rgba(66, 133, 244, 0.2);
+  border-radius: 12px;
+}
+
+.login-gate p {
+  margin: 0 0 0.7rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.login-gate .auth-btn {
+  max-width: 16rem;
+}
+
 .sidebar-title {
   margin: 0;
-  font-family: var(--font);
-  font-size: 1rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 400;
   color: var(--olive);
   letter-spacing: -0.02em;
 }
@@ -344,28 +502,113 @@
   text-align: center;
 }
 
+.mascot-hero {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 0.55rem;
+}
+
+.mascot-img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  user-select: none;
+  pointer-events: none;
+}
+
+.mascot-img--hero {
+  width: min(72%, 220px);
+  animation: mascot-float 4.5s ease-in-out infinite;
+}
+
+.mascot-loading {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 0.75rem;
+}
+
+.mascot-img--loading {
+  width: min(58%, 170px);
+  animation: mascot-breathe 2.4s ease-in-out infinite;
+}
+
+.mascot-rest {
+  margin: 1.15rem 0 0;
+  padding: 0.35rem 0.5rem 0;
+  text-align: center;
+}
+
+.mascot-img--rest {
+  width: min(78%, 240px);
+  margin: 0 auto;
+  animation: mascot-settle 0.7s ease-out both;
+}
+
+.mascot-rest figcaption {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+@keyframes mascot-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes mascot-breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.92;
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+    opacity: 1;
+  }
+}
+
+@keyframes mascot-settle {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .app-eyebrow {
   margin: 0 0 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
   color: var(--rose);
 }
 
 .app h1 {
   margin: 0 0 0.45rem;
-  font-family: var(--font);
-  font-size: 1.65rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: 400;
   letter-spacing: -0.02em;
   color: var(--olive);
 }
 
 .app-lead {
   margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.55;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  line-height: 1.6;
   color: var(--ink-soft);
 }
 
@@ -680,9 +923,9 @@ button[type='submit']:disabled {
 .result h2 {
   margin: 0 0 0.9rem;
   text-align: center;
-  font-family: var(--font);
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
   color: var(--olive);
   letter-spacing: -0.02em;
   display: flex;
@@ -698,7 +941,8 @@ button[type='submit']:disabled {
 .result-status {
   margin: -0.35rem 0 0.95rem;
   text-align: center;
-  font-size: 0.86rem;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
   color: var(--ink-soft);
 }
 
@@ -807,8 +1051,9 @@ button[type='submit']:disabled {
   background: var(--cream-deep);
   border-left: 3px solid var(--olive);
   border-radius: 0 12px 12px 0;
-  font-size: 0.95rem;
-  line-height: 1.8;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  line-height: 1.85;
   color: var(--ink);
   word-break: break-word;
 }
@@ -826,7 +1071,8 @@ button[type='submit']:disabled {
 .markdown h3,
 .markdown h4 {
   margin: 1.35em 0 0.55em;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.35;
   color: var(--ink);
